@@ -7,26 +7,21 @@ import numpy as np
 import re
 from flask_cors import CORS
 
-# Initialize Flask
-app = Flask(__name__)
-CORS(app) # enable CORS for all origins
 
-# Define the max length used during training
+app = Flask(__name__)
+CORS(app) 
+
+
 MAX_LEN = 150 
 
-# Load model and tokenizer
-# Ensure job_fraud_model.keras and tokenizer.pkl are in the same directory
-# NOTE: These paths assume the files are in the same directory as this script.
+
 try:
     model = tf.keras.models.load_model("job_fraud_model_full.keras")
     with open("tokenizer_full.pkl", "rb") as f:
         tokenizer = pickle.load(f)
 except Exception as e:
     print(f"Error loading model or tokenizer: {e}")
-    # Consider exiting or handling this error gracefully in a production environment
-
-# Global Keyword Lists for Job Classification
-# BALANCED LISTS (40 keywords each)
+  
 TECHNICAL_KEYWORDS = [
     "developer", "programmer", "software", "engineer", "frontend", "backend",
     "fullstack", "web development", "python", "java", "javascript", "react", 
@@ -58,9 +53,7 @@ NON_TECHNICAL_KEYWORDS = [
     "bookkeeper", "tax preparation", "event planning", "client relations"
 ]
 
-# -------------------------------
-# CLASSIFY JOB TYPE & EXTRACT KEYWORDS (MODIFIED)
-# -------------------------------
+
 def classify_job_type_and_extract_keywords(text):
     """
     Analyzes text against keyword lists to determine job category and return 
@@ -68,13 +61,13 @@ def classify_job_type_and_extract_keywords(text):
     """
     text_lower = text.lower()
     
-    # 1. Extract matching technical keywords
+   
     found_tech_keywords = [
         kw for kw in TECHNICAL_KEYWORDS 
         if re.search(r"\b" + re.escape(kw) + r"\b", text_lower)
     ]
     
-    # 2. Extract matching non-technical keywords
+   
     found_nontech_keywords = [
         kw for kw in NON_TECHNICAL_KEYWORDS 
         if re.search(r"\b" + re.escape(kw) + r"\b", text_lower)
@@ -83,7 +76,6 @@ def classify_job_type_and_extract_keywords(text):
     tech_count = len(found_tech_keywords)
     nontech_count = len(found_nontech_keywords)
 
-    # 3. Determine category based on counts
     if tech_count > nontech_count + 1:
         category = "Technical"
     elif nontech_count > tech_count + 1:
@@ -93,36 +85,31 @@ def classify_job_type_and_extract_keywords(text):
 
     return category, found_tech_keywords, found_nontech_keywords
 
-# -------------------------------
-# MODEL PREDICTION FUNCTION (unchanged)
-# -------------------------------
+
 def predict_proba(texts):
     if isinstance(texts, str):
         texts = [texts]
     sequences = tokenizer.texts_to_sequences(texts)
     sequences = [[0] if not seq else seq for seq in sequences]
     padded = pad_sequences(sequences, maxlen=MAX_LEN) 
-    preds = model.predict(padded, verbose=0) # Added verbose=0 for cleaner output
+    preds = model.predict(padded, verbose=0) 
     return np.hstack((1 - preds, preds)) 
 
-# -------------------------------
-# API ROUTE (MODIFIED)
-# -------------------------------
+
 @app.route("/predict", methods=["POST"])
 def predict():
     data = request.json
     text = data.get("description", "")
     
-    # Run Model Prediction
+ 
     probabilities = predict_proba(text)[0]
     prob_fake = probabilities[1]
     
     result = "Fake" if prob_fake > 0.11 else "Real"
     
-    # Determine Job Type and get found keywords
+  
     job_type, found_tech_keywords, found_nontech_keywords = classify_job_type_and_extract_keywords(text)
 
-    # LIME Explanation
     explainer = LimeTextExplainer(class_names=["Real", "Fake"])
     exp = explainer.explain_instance(text, predict_proba, num_features=10)
     lime_explanation = [{"word": w, "weight": float(score)} for w, score in exp.as_list()]
@@ -132,7 +119,7 @@ def predict():
         "probability": float(prob_fake),
         "job_type": job_type,
         "lime_explanation": lime_explanation,
-        # Return only the keywords found in the input text
+        
         "technical_keywords_list": found_tech_keywords,
         "non_technical_keywords_list": found_nontech_keywords
     })
