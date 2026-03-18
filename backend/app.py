@@ -10,7 +10,14 @@ from flask_cors import CORS
 
 
 app = Flask(__name__)
-CORS(app) 
+# Replace your current CORS(app) with this:
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 
 MAX_LEN = 150 
@@ -95,6 +102,11 @@ def predict_proba(texts):
     padded = pad_sequences(sequences, maxlen=MAX_LEN) 
     preds = model.predict(padded, verbose=0) 
     return np.hstack((1 - preds, preds)) 
+
+
+@app.route("/")
+def home():
+    return jsonify({"status": "Backend is healthy and CORS is active"}), 200
 
 
 @app.route("/predict", methods=["POST"])
