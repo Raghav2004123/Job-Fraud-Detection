@@ -124,7 +124,7 @@ def predict():
     job_type, found_tech_keywords, found_nontech_keywords = classify_job_type_and_extract_keywords(text)
 
     explainer = LimeTextExplainer(class_names=["Real", "Fake"])
-    exp = explainer.explain_instance(text, predict_proba, num_features=10,num_samples=50)
+    exp = explainer.explain_instance(text, predict_proba, num_features=10,num_samples=25)
     lime_explanation = [{"word": w, "weight": float(score)} for w, score in exp.as_list()]
 
     return jsonify({
