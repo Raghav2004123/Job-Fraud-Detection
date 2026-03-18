@@ -5,6 +5,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 from lime.lime_text import LimeTextExplainer
 import numpy as np
 import re
+import os
 from flask_cors import CORS
 
 
@@ -126,4 +127,7 @@ def predict():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Render provides a 'PORT' environment variable. 
+    # If it's not there (like on your laptop), it defaults to 5000.
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
