@@ -1,9 +1,10 @@
 ---
-title: Job Fraud Detection API
+title: Job Fraud Detection
 sdk: docker
-emoji: 🛡️
-colorFrom: blue
-colorTo: green
+emoji: 🕵️
+colorFrom: indigo
+colorTo: blue
 ---
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+# Job Fraud Detection System
+This is a Flask API running an LSTM model for fraud detection.
