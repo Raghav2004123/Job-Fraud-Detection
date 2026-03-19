@@ -10,7 +10,7 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 
-# Explicit CORS configuration for Hugging Face -> Vercel communication
+# Explicit CORS configuration
 CORS(app, resources={
     r"/*": {
         "origins": "*",
@@ -21,15 +21,32 @@ CORS(app, resources={
 
 MAX_LEN = 150 
 
-# Load model and tokenizer
+# --- PATH FIX START ---
+# Get the absolute path to the directory where app.py lives
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+model_path = os.path.join(BASE_DIR, "job_fraud_model_full.keras")
+tokenizer_path = os.path.join(BASE_DIR, "tokenizer_full.pkl")
+
+# Initialize variables as None to prevent NameErrors
+model = None
+tokenizer = None
+
 try:
-    # Ensure these files are in the same folder as app.py on Hugging Face
-    model = tf.keras.models.load_model("job_fraud_model_full.keras")
-    with open("tokenizer_full.pkl", "rb") as f:
-        tokenizer = pickle.load(f)
+    if os.path.exists(model_path) and os.path.exists(tokenizer_path):
+        model = tf.keras.models.load_model(model_path)
+        with open(tokenizer_path, "rb") as f:
+            tokenizer = pickle.load(f)
+        print("✅ SUCCESS: Model and Tokenizer loaded from absolute paths!")
+    else:
+        print(f"❌ ERROR: Files not found at {BASE_DIR}")
 except Exception as e:
-    print(f"Error loading model or tokenizer: {e}")
-  
+    print(f"❌ ERROR loading model/tokenizer: {str(e)}")
+# --- PATH FIX END ---
+
+# Global Explainer for efficiency
+explainer = LimeTextExplainer(class_names=["Real", "Fake"])
+
 TECHNICAL_KEYWORDS = [
     "developer", "programmer", "software", "engineer", "frontend", "backend",
     "fullstack", "web development", "python", "java", "javascript", "react", 
@@ -85,6 +102,10 @@ def classify_job_type_and_extract_keywords(text):
     return category, found_tech_keywords, found_nontech_keywords
 
 def predict_proba(texts):
+    # Safety check: ensure model/tokenizer exist before predicting
+    if model is None or tokenizer is None:
+        raise ValueError("Model or Tokenizer not loaded on server.")
+        
     if isinstance(texts, str):
         texts = [texts]
     sequences = tokenizer.texts_to_sequences(texts)
@@ -95,34 +116,42 @@ def predict_proba(texts):
 
 @app.route("/")
 def home():
-    return jsonify({"status": "Backend is healthy and running on Hugging Face"}), 200
+    return jsonify({
+        "status": "Backend is healthy",
+        "model_loaded": model is not None,
+        "tokenizer_loaded": tokenizer is not None
+    }), 200
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    data = request.json
-    text = data.get("description", "")
-    
-    probabilities = predict_proba(text)[0]
-    prob_fake = probabilities[1]
-    result = "Fake" if prob_fake > 0.11 else "Real"
-    
-    job_type, found_tech_keywords, found_nontech_keywords = classify_job_type_and_extract_keywords(text)
+    try:
+        data = request.json
+        text = data.get("description", "")
+        
+        if not text:
+            return jsonify({"error": "No description provided"}), 400
 
-    # Note: With HF's 16GB RAM, you can increase num_samples to 100 or 200 for better explanations!
-    explainer = LimeTextExplainer(class_names=["Real", "Fake"])
-    exp = explainer.explain_instance(text, predict_proba, num_features=10, num_samples=100)
-    lime_explanation = [{"word": w, "weight": float(score)} for w, score in exp.as_list()]
+        probabilities = predict_proba(text)[0]
+        prob_fake = probabilities[1]
+        result = "Fake" if prob_fake > 0.11 else "Real"
+        
+        job_type, found_tech_keywords, found_nontech_keywords = classify_job_type_and_extract_keywords(text)
 
-    return jsonify({
-        "prediction": result,
-        "probability": float(prob_fake),
-        "job_type": job_type,
-        "lime_explanation": lime_explanation,
-        "technical_keywords_list": found_tech_keywords,
-        "non_technical_keywords_list": found_nontech_keywords
-    })
+        # Explain prediction
+        exp = explainer.explain_instance(text, predict_proba, num_features=10, num_samples=100)
+        lime_explanation = [{"word": w, "weight": float(score)} for w, score in exp.as_list()]
+
+        return jsonify({
+            "prediction": result,
+            "probability": float(prob_fake),
+            "job_type": job_type,
+            "lime_explanation": lime_explanation,
+            "technical_keywords_list": found_tech_keywords,
+            "non_technical_keywords_list": found_nontech_keywords
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    # Hugging Face Spaces specifically looks for port 7860
     port = int(os.environ.get("PORT", 7860))
     app.run(host='0.0.0.0', port=port)
