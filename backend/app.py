@@ -8,9 +8,9 @@ import re
 import os
 from flask_cors import CORS
 
-
 app = Flask(__name__)
-# Replace your current CORS(app) with this:
+
+# Explicit CORS configuration for Hugging Face -> Vercel communication
 CORS(app, resources={
     r"/*": {
         "origins": "*",
@@ -19,11 +19,11 @@ CORS(app, resources={
     }
 })
 
-
 MAX_LEN = 150 
 
-
+# Load model and tokenizer
 try:
+    # Ensure these files are in the same folder as app.py on Hugging Face
     model = tf.keras.models.load_model("job_fraud_model_full.keras")
     with open("tokenizer_full.pkl", "rb") as f:
         tokenizer = pickle.load(f)
@@ -61,21 +61,12 @@ NON_TECHNICAL_KEYWORDS = [
     "bookkeeper", "tax preparation", "event planning", "client relations"
 ]
 
-
 def classify_job_type_and_extract_keywords(text):
-    """
-    Analyzes text against keyword lists to determine job category and return 
-    the list of keywords actually found in the text.
-    """
     text_lower = text.lower()
-    
-   
     found_tech_keywords = [
         kw for kw in TECHNICAL_KEYWORDS 
         if re.search(r"\b" + re.escape(kw) + r"\b", text_lower)
     ]
-    
-   
     found_nontech_keywords = [
         kw for kw in NON_TECHNICAL_KEYWORDS 
         if re.search(r"\b" + re.escape(kw) + r"\b", text_lower)
@@ -93,7 +84,6 @@ def classify_job_type_and_extract_keywords(text):
 
     return category, found_tech_keywords, found_nontech_keywords
 
-
 def predict_proba(texts):
     if isinstance(texts, str):
         texts = [texts]
@@ -103,28 +93,24 @@ def predict_proba(texts):
     preds = model.predict(padded, verbose=0) 
     return np.hstack((1 - preds, preds)) 
 
-
 @app.route("/")
 def home():
-    return jsonify({"status": "Backend is healthy and CORS is active"}), 200
-
+    return jsonify({"status": "Backend is healthy and running on Hugging Face"}), 200
 
 @app.route("/predict", methods=["POST"])
 def predict():
     data = request.json
     text = data.get("description", "")
     
- 
     probabilities = predict_proba(text)[0]
     prob_fake = probabilities[1]
-    
     result = "Fake" if prob_fake > 0.11 else "Real"
     
-  
     job_type, found_tech_keywords, found_nontech_keywords = classify_job_type_and_extract_keywords(text)
 
+    # Note: With HF's 16GB RAM, you can increase num_samples to 100 or 200 for better explanations!
     explainer = LimeTextExplainer(class_names=["Real", "Fake"])
-    exp = explainer.explain_instance(text, predict_proba, num_features=10,num_samples=25)
+    exp = explainer.explain_instance(text, predict_proba, num_features=10, num_samples=100)
     lime_explanation = [{"word": w, "weight": float(score)} for w, score in exp.as_list()]
 
     return jsonify({
@@ -132,14 +118,11 @@ def predict():
         "probability": float(prob_fake),
         "job_type": job_type,
         "lime_explanation": lime_explanation,
-        
         "technical_keywords_list": found_tech_keywords,
         "non_technical_keywords_list": found_nontech_keywords
     })
 
-
 if __name__ == "__main__":
-    # Render provides a 'PORT' environment variable. 
-    # If it's not there (like on your laptop), it defaults to 5000.
-    port = int(os.environ.get("PORT", 5000))
+    # Hugging Face Spaces specifically looks for port 7860
+    port = int(os.environ.get("PORT", 7860))
     app.run(host='0.0.0.0', port=port)
